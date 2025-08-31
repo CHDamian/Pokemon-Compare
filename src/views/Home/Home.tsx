@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getPokemonList, getPokemonByNameOrId } from "../../services/pokemonService";
+import { getPokemonList, getPokemonByNameOrId, getPokemonNamesByType, getAllPokemonNames } from "../../services/pokemonService";
 import { type Pokemon } from "../../types/Pokemon";
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, Button, Pagination, Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Typography, Box, Skeleton 
+  TextField, Typography, Box, Skeleton, FormControl, InputLabel, Select, MenuItem
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { usePokemonCompare } from "../../context/PokemonCompareContext";
+import { getTypeBackground, typeColors } from "../../utils/typeColors";
+
 
 const Home = () => {
 
@@ -16,6 +18,14 @@ const Home = () => {
   const limit = 10;
 
   const [search, setSearch] = useState<string>("");
+
+  const [firstType, setFirstType] = useState<string>("");
+  const [secondType, setSecondType] = useState<string>("");
+
+  const ALL_TYPES = Object.keys(typeColors);
+
+  const [pageInput, setPageInput] = useState<string>("1");
+
 
   const [openDialog, setOpenDialog] = useState<boolean>(false);
   const [dialogTitle, setDialogTitle] = useState<string>("");
@@ -29,25 +39,56 @@ const Home = () => {
     isLoading,
     isError,
   } = useQuery<{ count: number; results: Pokemon[] }, Error>({
-    queryKey: ["pokemons", page, search],
+    queryKey: ["pokemons", page, search, firstType, secondType],
     queryFn: async (): Promise<{ count: number; results: Pokemon[] }> => {
+      // 1. pobieramy wszystkie nazwy
+      let allNames = await getAllPokemonNames();
+
+      // 2. filtr po nazwie (jeśli coś wpisano)
       if (search.trim()) {
-        const pokemon = await getPokemonByNameOrId(search.toLowerCase());
-        return pokemon
-          ? { count: 1, results: [pokemon] }
-          : { count: 0, results: [] };
-      } else {
-        const list = await getPokemonList((page - 1) * limit, limit);
-        const detailed = await Promise.all(
-          list.results.map(p => getPokemonByNameOrId(p.name))
+        allNames = allNames.filter(name =>
+          name.toLowerCase().includes(search.toLowerCase())
         );
-        return {
-          count: list.count,
-          results: detailed.filter(Boolean) as Pokemon[],
-        };
       }
+
+      // 3. filtr po typach
+      if (firstType || secondType) {
+        const namesA = firstType ? await getPokemonNamesByType(firstType) : [];
+        const namesB = secondType ? await getPokemonNamesByType(secondType) : [];
+
+        let filteredNames: string[] = [];
+
+        if (firstType && secondType) {
+          const setB = new Set(namesB);
+          filteredNames = namesA.filter(n => setB.has(n));
+        } else if (firstType) {
+          filteredNames = namesA;
+        } else {
+          filteredNames = namesB;
+        }
+
+        // zawężamy do wspólnej części
+        const setFiltered = new Set(filteredNames);
+        allNames = allNames.filter(name => setFiltered.has(name));
+      }
+
+      // 4. paginacja
+      const count = allNames.length;
+      const start = (page - 1) * limit;
+      const slice = allNames.slice(start, start + limit);
+
+      // 5. pobranie szczegółów
+      const detailed = await Promise.all(
+        slice.map(name => getPokemonByNameOrId(name))
+      );
+
+      return {
+        count,
+        results: detailed.filter(Boolean) as Pokemon[],
+      };
     },
   });
+
 
 
   const handlePageChange = (_: React.ChangeEvent<unknown>, value: number) => {
@@ -74,6 +115,37 @@ const Home = () => {
     }
   };
 
+  const handleFirstTypeChange = (value: string) => {
+    setFirstType(value);
+    setPage(1);
+    setPageInput("1");
+    if (!value) {
+      // jeśli wyczyszczono pierwszy typ – zresetuj drugi
+      setSecondType("");
+    }
+  };
+
+  const handleSecondTypeChange = (value: string) => {
+    setSecondType(value);
+    setPage(1);
+    setPageInput("1");
+  };
+
+const totalPages = Math.max(1, Math.ceil((pokemonsData?.count ?? 0) / limit));
+
+const goToPage = (raw: string) => {
+  const n = parseInt(raw, 10);
+  if (isNaN(n) || n < 1) {
+    setPage(1);
+    setPageInput("1");
+    return;
+  }
+  const clamped = Math.min(Math.max(n, 1), totalPages);
+  setPage(clamped);
+  setPageInput(String(clamped));
+};
+
+
   return (
     <div style={{ padding: "20px" }}>
       <h1>Pokémon Compare</h1>
@@ -92,6 +164,42 @@ const Home = () => {
           fullWidth
         />
       </Box>
+
+      {/* 🔽 filtry typów */}
+      <Box mb={2} display="flex" gap={2} flexWrap="wrap">
+        <FormControl sx={{ minWidth: 180 }}>
+          <InputLabel id="first-type-label">Typ 1</InputLabel>
+          <Select
+            labelId="first-type-label"
+            label="Typ 1"
+            value={firstType}
+            onChange={(e) => handleFirstTypeChange(e.target.value)}
+          >
+            <MenuItem value=""><em>Brak</em></MenuItem>
+            {ALL_TYPES.map((t) => (
+              <MenuItem key={t} value={t}>{t}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <FormControl sx={{ minWidth: 180 }} disabled={!firstType}>
+          <InputLabel id="second-type-label">Typ 2</InputLabel>
+          <Select
+            labelId="second-type-label"
+            label="Typ 2"
+            value={secondType}
+            onChange={(e) => handleSecondTypeChange(e.target.value)}
+          >
+            <MenuItem value=""><em>Brak</em></MenuItem>
+            {ALL_TYPES
+              .filter(t => t !== firstType) // nie pozwól wybrać 2x tego samego
+              .map((t) => (
+                <MenuItem key={t} value={t}>{t}</MenuItem>
+              ))}
+          </Select>
+        </FormControl>
+      </Box>
+
 
       {/* 📌 sekcja z informacją o wybranych pokemonach */}
       <Box mb={2}>
@@ -168,7 +276,10 @@ const Home = () => {
           </TableHead>
           <TableBody>
             {(pokemonsData?.results ?? []).map((p: Pokemon) => (
-              <TableRow key={p.id}>
+              <TableRow
+                key={p.id}
+                style={{ background: getTypeBackground(p.types.map(t => t.type.name)) }}
+              >
                 <TableCell>{p.name}</TableCell>
                 <TableCell>
                   <img src={p.sprites.front_default} alt={p.name} width={50} height={50} />
@@ -218,16 +329,49 @@ const Home = () => {
       </TableContainer>
 
 
-      {!search && (
-        <div style={{ marginTop: "20px", display: "flex", justifyContent: "center" }}>
+      {( !search || firstType || secondType ) && (
+        <Box
+          mt={2}
+          display="flex"
+          justifyContent="center"
+          alignItems="center"
+          gap={2}
+          flexWrap="wrap"
+        >
           <Pagination
-            count={Math.ceil((pokemonsData?.count ?? 0) / limit)}
+            count={totalPages}
             page={page}
             onChange={handlePageChange}
             color="primary"
           />
-        </div>
+
+          {/* pole do wpisania numeru strony */}
+          <Box display="flex" alignItems="center" gap={1}>
+            <TextField
+              label="Strona"
+              type="number"
+              size="small"
+              value={pageInput}
+              onChange={(e) => setPageInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  goToPage(pageInput);
+                }
+              }}
+              inputProps={{ min: 1 }}
+              sx={{ width: 100 }}
+            />
+            <Button
+              variant="outlined"
+              onClick={() => goToPage(pageInput)}
+            >
+              Idź
+            </Button>
+            <Typography variant="body2">/ {totalPages}</Typography>
+          </Box>
+        </Box>
       )}
+
 
       {/* 📊 dialog z listą typów/umiejętności */}
       <Dialog open={openDialog} onClose={handleCloseDialog} fullWidth>

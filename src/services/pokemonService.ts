@@ -10,7 +10,7 @@ export async function getPokemonList(offset = 0, limit = 20): Promise<PokemonLis
 }
 
 export async function getAllPokemonNames(): Promise<string[]> {
-  const response = await fetch("https://pokeapi.co/api/v2/pokemon?limit=100000&offset=0");
+  const response = await fetch(`${API_URL}/pokemon?limit=100000&offset=0`);
   if (!response.ok) {
     throw new Error("Błąd pobierania listy nazw pokemonów");
   }
@@ -24,3 +24,13 @@ export async function getPokemonByNameOrId(nameOrId: string | number): Promise<P
   if (!res.ok) throw new Error(`Pokemon ${nameOrId} not found`);
   return res.json();
 }
+
+
+export async function getPokemonNamesByType(type: string): Promise<string[]> {
+  const res = await fetch(`${API_URL}/type/${type}`);
+  if (!res.ok) throw new Error("Failed to fetch pokemon by type");
+  const data = await res.json();
+  // data.pokemon jest tablicą obiektów: { pokemon: { name, url }, slot }
+  return data.pokemon.map((p: { pokemon: { name: string } }) => p.pokemon.name);
+}
+
