@@ -9,6 +9,11 @@ export interface Ability {
   slot: number;
 }
 
+export interface AbilityDetails {
+  name: string;
+  effect: string;
+}
+
 export interface Type {
   slot: number;
   type: NamedAPIResource;
@@ -20,10 +25,15 @@ export interface Stat {
   stat: NamedAPIResource;
 }
 
+export interface Sprites {
+  front_default: string;
+}
+
 export interface Pokemon {
   id: number;
   name: string;
   abilities: Ability[];
   types: Type[];
   stats: Stat[];
+  sprites: Sprites;
 }

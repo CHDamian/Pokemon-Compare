@@ -1,4 +1,4 @@
-import { type Pokemon} from "../types/Pokemon";
+import { type Pokemon, type AbilityDetails } from "../types/Pokemon";
 import { type PokemonListResponse } from "../types/PokemonListResponse";
 
 const API_URL = "https://pokeapi.co/api/v2";
@@ -32,5 +32,20 @@ export async function getPokemonNamesByType(type: string): Promise<string[]> {
   const data = await res.json();
   // data.pokemon jest tablicą obiektów: { pokemon: { name, url }, slot }
   return data.pokemon.map((p: { pokemon: { name: string } }) => p.pokemon.name);
+}
+
+export async function getAbilityDetails(url: string): Promise<AbilityDetails> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch ability details");
+  const data = await res.json();
+
+  const effectEntry =
+    data.effect_entries.find((e: any) => e.language.name === "en")?.effect ??
+    "No description available";
+
+  return {
+    name: data.name,
+    effect: effectEntry,
+  };
 }
 
